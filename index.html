@@ -116,6 +116,9 @@ button,input{font:inherit;color:inherit}
 .layer.selected .handle{display:block}
 .guides{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:500}
 .guides[hidden]{display:none}
+.vtx-host{position:absolute;left:0;top:0;width:0;height:0;z-index:600}
+.vtx{position:absolute;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;background:#fff;border:3px solid var(--tape);cursor:move;touch-action:none;box-shadow:0 1px 4px rgba(0,0,0,.35)}
+.vtx:focus-visible{outline:3px solid var(--focus)}
 .empty{position:absolute;inset:0;display:grid;place-content:center;text-align:center;pointer-events:none;color:#7A8580}
 .empty strong{font-family:"Permanent Marker","Comic Sans MS",cursive;font-weight:400;font-size:clamp(18px,2.6vw,30px);color:#2A2F2C}
 .empty span{font-size:13px}
@@ -180,6 +183,7 @@ textarea{resize:vertical;min-height:50px}
       <div class="layout-pick" role="group" aria-label="Layout" id="layoutPick"></div>
       <p class="hint" id="layoutHint">Click a section to color it or add a photo. You can also drag a screenshot straight onto a section.</p>
       <button class="btn" type="button" id="secRestore" hidden style="width:100%;margin-top:10px">Restore removed sections</button>
+      <button class="btn" type="button" id="vtxReset" hidden style="width:100%;margin-top:6px">Reset section shapes</button>
       <div class="field" id="lineWrap" style="margin-top:12px">
         <div class="field-top"><label for="lineW">Line thickness</label><output id="lineWOut"></output></div>
         <input type="range" id="lineW" min="0.1" max="1.5" step="0.05">
@@ -190,6 +194,7 @@ textarea{resize:vertical;min-height:50px}
 
     <section id="secPanel" hidden>
       <h2 id="secTitle">Section</h2>
+      <p class="hint" id="vtxHint" style="margin:-4px 0 10px">Drag the white dots to reshape this section. Neighbors that share a corner move with it.</p>
       <p class="sub-h" style="margin-top:0">Background color</p>
       <div class="swatches" id="secSwatches"></div>
       <p class="sub-h">Text</p>
@@ -338,6 +343,7 @@ textarea{resize:vertical;min-height:50px}
         <svg class="guides" id="guides" viewBox="0 0 96 24" preserveAspectRatio="none" aria-hidden="true"></svg>
         <div class="empty" id="empty"><strong>Drop photos here</strong><span>or use Add photos</span></div>
       </div>
+      <div class="vtx-host" id="vtxHost"></div>
     </div>
   </main>
 </div>
@@ -349,7 +355,7 @@ textarea{resize:vertical;min-height:50px}
   const $ = s => document.querySelector(s);
   const mat = $('#mat'), table = $('#table'), host = $('#layerHost');
   const state = { layers: [], sel: null, view: 'color', ppi: 1, nextId: 1, layout: 's1', sections: {}, selSec: null,
-    lineW: 0.45, lineColor: '#161616', secColors: {}, secText: {}, removed: {}, dragTarget: 'photo',
+    lineW: 0.45, lineColor: '#161616', secColors: {}, secText: {}, removed: {}, verts: {}, dragTarget: 'photo',
     cups: { paint: false, fill: '#A99BF0', textL: '', textR: '', font: 'Titan One', size: 2.4, textColor: '#161616' } };
   const PALETTE = ['#A99BF0','#4FC3F7','#1E5BD8','#F8A23B','#FAD54A','#E2CFA8','#BDBDBD','#D32F2F','#F4A7C6','#3BB273','#161616','#FFFFFF'];
   const FONTS = { 'Titan One': "'Titan One','Arial Black',sans-serif", 'Bungee': "'Bungee','Arial Black',sans-serif", 'Rubik Mono One': "'Rubik Mono One','Arial Black',sans-serif", 'Permanent Marker': "'Permanent Marker','Comic Sans MS',cursive", 'Bricolage Grotesque': "'Bricolage Grotesque',ui-sans-serif,system-ui,sans-serif" };
@@ -598,8 +604,8 @@ textarea{resize:vertical;min-height:50px}
       [[0,0],[24,12],[0,24]], [[0,0],[48,0],[24,12]], [[0,24],[24,12],[48,24]],
       { pts: [[48,0],[72,12],[48,24],[24,12]], label: [31.5, 12] },
       [[48,0],[96,0],[72,12]], [[48,24],[72,12],[96,24]], [[96,0],[72,12],[96,24]],
-      { pts: circ(48, 12, 9.8), label: [48, 4.6] },
-      circ(48, 12, 4.9)
+      { pts: circ(48, 12, 9.8), label: [48, 4.6], circle: true },
+      { pts: circ(48, 12, 4.9), circle: true }
     ];
     return {
       s6: diamondRings,
@@ -669,21 +675,58 @@ textarea{resize:vertical;min-height:50px}
   const secRefs = {};
   let secSel = null;
 
+  /* ---------- Movable corners ----------
+     A corner is identified by its original position ("x,y"). Sections that share a corner
+     read the same moved position from state.verts, so neighbors stay joined. */
+  const vkey = p => p[0].toFixed(2) + ',' + p[1].toFixed(2);
+  const GEO = {};
+  function geoOf(layout){
+    if (GEO[layout]) return GEO[layout];
+    const regs = STYLES[layout].map(r => Array.isArray(r) ? { pts: r } : r);
+    const all = new Map();
+    regs.forEach(r => { if (!r.circle) r.pts.forEach(p => all.set(vkey(p), p)); });
+    // A corner can touch a neighbor partway along one of its edges. Add it to that edge
+    // so dragging the corner bends the neighbor too, instead of opening a gap.
+    GEO[layout] = regs.map(r => {
+      if (r.circle) return r;
+      const out = [];
+      r.pts.forEach((a, i) => {
+        const b = r.pts[(i + 1) % r.pts.length], dx = b[0] - a[0], dy = b[1] - a[1], len2 = dx*dx + dy*dy;
+        out.push(a);
+        const mids = [];
+        for (const v of all.values()){
+          const t = ((v[0] - a[0]) * dx + (v[1] - a[1]) * dy) / len2;
+          if (t <= 0.001 || t >= 0.999) continue;
+          const cross = Math.abs((v[0] - a[0]) * dy - (v[1] - a[1]) * dx) / Math.sqrt(len2);
+          if (cross < 0.02) mids.push([t, v]);
+        }
+        mids.sort((m, n) => m[0] - n[0]).forEach(m => out.push(m[1]));
+      });
+      return { ...r, pts: out };
+    });
+    return GEO[layout];
+  }
+  const vpos = p => state.verts[vkey(p)] || p;
+  function shapeOf(reg){
+    const pts = reg.circle ? reg.pts : reg.pts.map(vpos);
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+    const bb = { x: Math.min(...xs), y: Math.min(...ys) }; bb.w = Math.max(...xs) - bb.x; bb.h = Math.max(...ys) - bb.y;
+    let cx = xs.reduce((a, b) => a + b) / xs.length, cy = ys.reduce((a, b) => a + b) / ys.length;
+    if (reg.label){ cx = reg.label[0]; cy = reg.label[1]; }
+    return { pts, ps: pts.map(p => p.join(',')).join(' '), bb, cx, cy };
+  }
+
   function buildSections(){
     const svg = $('#sections'); svg.innerHTML = '';
     for (const k in secRefs) delete secRefs[k];
     if (state.layout === 'free'){ svg.setAttribute('hidden', ''); return; }
     svg.removeAttribute('hidden');
     const defs = svgEl('defs', {}); svg.appendChild(defs);
-    STYLES[state.layout].forEach((reg, i) => {
+    geoOf(state.layout).forEach((reg, i) => {
       if (state.removed[i + 1]) return;
-      const pts = Array.isArray(reg) ? reg : reg.pts;
-      const n = i + 1, ps = pts.map(p => p.join(',')).join(' ');
-      const cp = svgEl('clipPath', { id: 'sec-clip-' + n }); cp.appendChild(svgEl('polygon', { points: ps })); defs.appendChild(cp);
-      const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
-      const bb = { x: Math.min(...xs), y: Math.min(...ys) }; bb.w = Math.max(...xs) - bb.x; bb.h = Math.max(...ys) - bb.y;
-      let cx = xs.reduce((a, b) => a + b) / xs.length, cy = ys.reduce((a, b) => a + b) / ys.length;
-      if (!Array.isArray(reg) && reg.label){ cx = reg.label[0]; cy = reg.label[1]; }
+      const n = i + 1, { ps, bb, cx, cy } = shapeOf(reg);
+      const clip = svgEl('polygon', { points: ps });
+      const cp = svgEl('clipPath', { id: 'sec-clip-' + n }); cp.appendChild(clip); defs.appendChild(cp);
       const g = svgEl('g', { 'clip-path': `url(#sec-clip-${n})` });
       const bg = svgEl('polygon', { points: ps, fill: 'rgba(90,155,224,.12)' });
       const img = svgEl('image', { preserveAspectRatio: 'none' }); img.style.display = 'none';
@@ -695,11 +738,59 @@ textarea{resize:vertical;min-height:50px}
       const outline = svgEl('polygon', { points: ps, fill: 'none', stroke: '#161616', 'stroke-width': state.lineW, 'stroke-linejoin': 'round', 'pointer-events': 'none' });
       const hit = svgEl('polygon', { points: ps, fill: 'transparent', class: 'sec-hit', tabindex: 0, role: 'button', 'data-sec': n, 'aria-label': `Section ${n}, add photo` });
       svg.append(g, label, plus, outline, hit);
-      secRefs[n] = { bb, img, bg, label, plus, hit, ps, outline, small, txt, cx, cy };
+      secRefs[n] = { reg, clip, bb, img, bg, label, plus, hit, ps, outline, small, txt, cx, cy };
     });
     secSel = svgEl('polygon', { fill: 'none', stroke: '#5A9BE0', 'stroke-width': 3, 'stroke-dasharray': '7 5', 'vector-effect': 'non-scaling-stroke', 'pointer-events': 'none' });
     svg.appendChild(secSel);
   }
+  function reshapeSections(){
+    for (const n in secRefs){
+      const R = secRefs[n], { ps, bb, cx, cy } = shapeOf(R.reg);
+      Object.assign(R, { ps, bb, cx, cy });
+      [R.clip, R.bg, R.outline, R.hit].forEach(el => el.setAttribute('points', ps));
+      R.label.setAttribute('x', cx); R.label.setAttribute('y', R.small ? cy : cy - 0.6);
+      R.plus.setAttribute('x', cx); R.plus.setAttribute('y', cy + 1.9);
+      if (state.sections[n]) clampSec(state.sections[n], bb);
+    }
+  }
+  function renderHandles(){
+    const host = $('#vtxHost'); host.innerHTML = '';
+    const n = state.selSec, R = n && secRefs[n];
+    $('#vtxHint').hidden = !R || R.reg.circle;
+    if (!R || R.reg.circle) return;
+    R.reg.pts.forEach(p => {
+      const fixedX = p[0] === 0 || p[0] === TW, fixedY = p[1] === 0 || p[1] === TH;
+      if (fixedX && fixedY) return;   // table corners never move
+      const q = vpos(p), h = document.createElement('div');
+      h.className = 'vtx'; h.tabIndex = 0; h.dataset.key = vkey(p);
+      h.setAttribute('role', 'button'); h.setAttribute('aria-label', `Corner at ${q[0].toFixed(1)}, ${q[1].toFixed(1)} inches. Use arrow keys to move.`);
+      h.style.left = (q[0] * state.ppi) + 'px'; h.style.top = (q[1] * state.ppi) + 'px';
+      const move = (x, y) => {
+        state.verts[vkey(p)] = [fixedX ? p[0] : +clamp(x, 0, TW).toFixed(2), fixedY ? p[1] : +clamp(y, 0, TH).toFixed(2)];
+        reshapeSections(); render(); syncReset();
+      };
+      h.addEventListener('pointerdown', e => {
+        e.preventDefault(); e.stopPropagation();
+        const rect = table.getBoundingClientRect();
+        const onMove = ev => move((ev.clientX - rect.left) / state.ppi, (ev.clientY - rect.top) / state.ppi);
+        const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); window.removeEventListener('pointercancel', onUp); };
+        window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', onUp); window.addEventListener('pointercancel', onUp);
+      });
+      h.addEventListener('keydown', e => {
+        const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+        if (!d) return;
+        e.preventDefault(); e.stopPropagation();
+        const step = e.shiftKey ? 2 : 0.25, cur = vpos(p);
+        move(cur[0] + d[0] * step, cur[1] + d[1] * step);
+        const again = [...$('#vtxHost').children].find(el => el.dataset.key === vkey(p)); if (again) again.focus();
+      });
+      host.appendChild(h);
+    });
+  }
+  function syncReset(){
+    $('#vtxReset').hidden = !Object.keys(state.verts).length || state.layout === 'free';
+  }
+  $('#vtxReset').addEventListener('click', () => { state.verts = {}; reshapeSections(); render(); syncReset(); });
 
   function placeSec(S, bb){
     const w = Math.max(bb.w, bb.h / S.aspect) * S.zoom, h = w * S.aspect;
@@ -724,7 +815,7 @@ textarea{resize:vertical;min-height:50px}
     return { key, src: S.cache[key] };
   }
   function renderSections(){
-    if (state.layout === 'free') return;
+    if (state.layout === 'free'){ $('#vtxHost').innerHTML = ''; return; }
     for (const n in secRefs){
       const R = secRefs[n], S = state.sections[n];
       if (S){
@@ -764,6 +855,7 @@ textarea{resize:vertical;min-height:50px}
       } else R.txt.style.display = 'none';
       R.hit.classList.toggle('filled', !!(state.sections[n] || has));
     }
+    renderHandles();
     if (secSel){
       if (state.selSec && secRefs[state.selSec]){ secSel.setAttribute('points', secRefs[state.selSec].ps); secSel.style.display = ''; }
       else secSel.style.display = 'none';
@@ -878,15 +970,15 @@ textarea{resize:vertical;min-height:50px}
   if (document.fonts) document.fonts.ready.then(() => renderCups());
 
   function setLayout(l){
-    bank[state.layout] = { sections: state.sections, colors: state.secColors, texts: state.secText, removed: state.removed };
+    bank[state.layout] = { sections: state.sections, colors: state.secColors, texts: state.secText, removed: state.removed, verts: state.verts };
     state.layout = l; state.selSec = null;
-    const saved = bank[l] || { sections: {}, colors: {}, texts: {}, removed: {} };
-    state.sections = saved.sections; state.secColors = saved.colors; state.secText = saved.texts; state.removed = saved.removed;
+    const saved = bank[l] || { sections: {}, colors: {}, texts: {}, removed: {}, verts: {} };
+    state.sections = saved.sections; state.secColors = saved.colors; state.secText = saved.texts; state.removed = saved.removed; state.verts = saved.verts;
     document.querySelectorAll('#layoutPick button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.layout === l)));
     const sec = l !== 'free';
     $('#layoutHint').hidden = !sec; $('#lineWrap').hidden = !sec;
     $('#photosTitle').textContent = sec ? 'Extra photos on top' : 'Your photos';
-    buildSections(); render(); syncControls(); syncRestore();
+    buildSections(); render(); syncControls(); syncRestore(); syncReset();
   }
 
   /* ---------- Adding photos ---------- */
