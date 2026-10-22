@@ -182,6 +182,8 @@ textarea{resize:vertical;min-height:50px}
       <div class="field" id="lineWrap" style="margin-top:12px">
         <div class="field-top"><label for="lineW">Line thickness</label><output id="lineWOut"></output></div>
         <input type="range" id="lineW" min="0.1" max="1.5" step="0.05">
+        <p class="small-label" style="margin:8px 0 6px">Line color</p>
+        <div class="swatches" id="lineSwatches"></div>
       </div>
     </section>
 
@@ -343,7 +345,7 @@ textarea{resize:vertical;min-height:50px}
   const $ = s => document.querySelector(s);
   const mat = $('#mat'), table = $('#table'), host = $('#layerHost');
   const state = { layers: [], sel: null, view: 'color', ppi: 1, nextId: 1, layout: 's1', sections: {}, selSec: null,
-    lineW: 0.45, secColors: {}, secText: {}, dragTarget: 'photo',
+    lineW: 0.45, lineColor: '#161616', secColors: {}, secText: {}, dragTarget: 'photo',
     cups: { paint: false, fill: '#A99BF0', textL: '', textR: '', font: 'Titan One', size: 2.4, textColor: '#161616' } };
   const PALETTE = ['#A99BF0','#4FC3F7','#1E5BD8','#F8A23B','#FAD54A','#E2CFA8','#BDBDBD','#D32F2F','#F4A7C6','#3BB273','#161616','#FFFFFF'];
   const FONTS = { 'Titan One': "'Titan One','Arial Black',sans-serif", 'Bungee': "'Bungee','Arial Black',sans-serif", 'Rubik Mono One': "'Rubik Mono One','Arial Black',sans-serif", 'Permanent Marker': "'Permanent Marker','Comic Sans MS',cursive", 'Bricolage Grotesque': "'Bricolage Grotesque',ui-sans-serif,system-ui,sans-serif" };
@@ -741,6 +743,7 @@ textarea{resize:vertical;min-height:50px}
     for (const n in secRefs){
       const R = secRefs[n], T = state.secText[n];
       R.outline.setAttribute('stroke-width', state.lineW);
+      R.outline.setAttribute('stroke', state.view === 'stencil' ? '#161616' : state.lineColor);
       const has = T && T.text.trim();
       if (has){
         const lines = T.text.split('\n'), lh = T.size * 1.02, start = -(lines.length - 1) / 2 * lh;
@@ -851,6 +854,10 @@ textarea{resize:vertical;min-height:50px}
   $('#lineW').value = state.lineW; $('#lineWOut').textContent = state.lineW.toFixed(2) + ' in';
   $('#cupSize').value = state.cups.size; $('#cupSizeOut').textContent = state.cups.size.toFixed(1) + ' in';
   buildCupSwatches();
+  function buildLineSwatches(){
+    buildSwatches($('#lineSwatches'), state.lineColor, (c, live) => { state.lineColor = c; render(); if (!live) buildLineSwatches(); }, false);
+  }
+  buildLineSwatches();
   if (document.fonts) document.fonts.ready.then(() => renderCups());
 
   function setLayout(l){
