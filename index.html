@@ -179,6 +179,7 @@ textarea{resize:vertical;min-height:50px}
       <h2>Layout</h2>
       <div class="layout-pick" role="group" aria-label="Layout" id="layoutPick"></div>
       <p class="hint" id="layoutHint">Click a section to color it or add a photo. You can also drag a screenshot straight onto a section.</p>
+      <button class="btn" type="button" id="secRestore" hidden style="width:100%;margin-top:10px">Restore removed sections</button>
       <div class="field" id="lineWrap" style="margin-top:12px">
         <div class="field-top"><label for="lineW">Line thickness</label><output id="lineWOut"></output></div>
         <input type="range" id="lineW" min="0.1" max="1.5" step="0.05">
@@ -254,6 +255,8 @@ textarea{resize:vertical;min-height:50px}
           <button class="btn danger" type="button" id="secRemove">Remove photo</button>
         </div>
       </div>
+      <button class="btn danger" type="button" id="secDelete" style="width:100%;margin-top:16px">Remove this section</button>
+      <p class="hint" style="margin-top:4px">Takes out its lines and color so what’s underneath shows through.</p>
       <input type="file" id="secFile" accept="image/*" class="visually-hidden" tabindex="-1">
     </section>
 
@@ -346,7 +349,7 @@ textarea{resize:vertical;min-height:50px}
   const $ = s => document.querySelector(s);
   const mat = $('#mat'), table = $('#table'), host = $('#layerHost');
   const state = { layers: [], sel: null, view: 'color', ppi: 1, nextId: 1, layout: 's1', sections: {}, selSec: null,
-    lineW: 0.45, lineColor: '#161616', secColors: {}, secText: {}, dragTarget: 'photo',
+    lineW: 0.45, lineColor: '#161616', secColors: {}, secText: {}, removed: {}, dragTarget: 'photo',
     cups: { paint: false, fill: '#A99BF0', textL: '', textR: '', font: 'Titan One', size: 2.4, textColor: '#161616' } };
   const PALETTE = ['#A99BF0','#4FC3F7','#1E5BD8','#F8A23B','#FAD54A','#E2CFA8','#BDBDBD','#D32F2F','#F4A7C6','#3BB273','#161616','#FFFFFF'];
   const FONTS = { 'Titan One': "'Titan One','Arial Black',sans-serif", 'Bungee': "'Bungee','Arial Black',sans-serif", 'Rubik Mono One': "'Rubik Mono One','Arial Black',sans-serif", 'Permanent Marker': "'Permanent Marker','Comic Sans MS',cursive", 'Bricolage Grotesque': "'Bricolage Grotesque',ui-sans-serif,system-ui,sans-serif" };
@@ -673,6 +676,7 @@ textarea{resize:vertical;min-height:50px}
     svg.removeAttribute('hidden');
     const defs = svgEl('defs', {}); svg.appendChild(defs);
     STYLES[state.layout].forEach((reg, i) => {
+      if (state.removed[i + 1]) return;
       const pts = Array.isArray(reg) ? reg : reg.pts;
       const n = i + 1, ps = pts.map(p => p.join(',')).join(' ');
       const cp = svgEl('clipPath', { id: 'sec-clip-' + n }); cp.appendChild(svgEl('polygon', { points: ps })); defs.appendChild(cp);
@@ -795,6 +799,19 @@ textarea{resize:vertical;min-height:50px}
   $('#secTurn').addEventListener('click', () => { const S = state.sections[state.selSec]; if (!S) return; S.rot = norm(S.rot + 90); clampSec(S, secRefs[state.selSec].bb); render(); syncControls(); });
   function removeSec(){ if (!state.selSec) return; delete state.sections[state.selSec]; render(); syncControls(); }
   $('#secRemove').addEventListener('click', removeSec);
+  function syncRestore(){
+    const k = Object.keys(state.removed).length;
+    $('#secRestore').hidden = !k || state.layout === 'free';
+    $('#secRestore').textContent = k === 1 ? 'Restore 1 removed section' : `Restore ${k} removed sections`;
+  }
+  $('#secDelete').addEventListener('click', () => {
+    if (!state.selSec) return;
+    state.removed[state.selSec] = true; state.selSec = null;
+    buildSections(); render(); syncControls(); syncRestore();
+  });
+  $('#secRestore').addEventListener('click', () => {
+    state.removed = {}; buildSections(); render(); syncControls(); syncRestore();
+  });
 
   function buildSwatches(el, current, onPick, allowNone){
     el.innerHTML = '';
@@ -861,15 +878,15 @@ textarea{resize:vertical;min-height:50px}
   if (document.fonts) document.fonts.ready.then(() => renderCups());
 
   function setLayout(l){
-    bank[state.layout] = { sections: state.sections, colors: state.secColors, texts: state.secText };
+    bank[state.layout] = { sections: state.sections, colors: state.secColors, texts: state.secText, removed: state.removed };
     state.layout = l; state.selSec = null;
-    const saved = bank[l] || { sections: {}, colors: {}, texts: {} };
-    state.sections = saved.sections; state.secColors = saved.colors; state.secText = saved.texts;
+    const saved = bank[l] || { sections: {}, colors: {}, texts: {}, removed: {} };
+    state.sections = saved.sections; state.secColors = saved.colors; state.secText = saved.texts; state.removed = saved.removed;
     document.querySelectorAll('#layoutPick button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.layout === l)));
     const sec = l !== 'free';
     $('#layoutHint').hidden = !sec; $('#lineWrap').hidden = !sec;
     $('#photosTitle').textContent = sec ? 'Extra photos on top' : 'Your photos';
-    buildSections(); render(); syncControls();
+    buildSections(); render(); syncControls(); syncRestore();
   }
 
   /* ---------- Adding photos ---------- */
