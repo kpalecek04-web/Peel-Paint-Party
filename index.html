@@ -259,8 +259,9 @@ textarea{resize:vertical;min-height:50px}
 
     <section>
       <h2>Cup circles</h2>
-      <label class="check"><input type="checkbox" id="cupPaint"> Fill circles with color</label>
-      <div id="cupColorWrap" hidden style="margin-top:10px"><div class="swatches" id="cupSwatches"></div></div>
+      <p class="sub-h" style="margin-top:0">Circle color</p>
+      <div class="swatches" id="cupSwatches"></div>
+      <p class="hint">Pick “no color” (the striped swatch) to show dashed guides instead.</p>
       <p class="sub-h">Text over the cups</p>
       <div class="field"><label for="cupTextL" class="small-label">Left end</label><textarea id="cupTextL" rows="2" placeholder="Get your&#10;balls wet"></textarea></div>
       <div class="field"><label for="cupTextR" class="small-label">Right end</label><textarea id="cupTextR" rows="2" placeholder="Hit me with&#10;your best shot"></textarea></div>
@@ -820,7 +821,7 @@ textarea{resize:vertical;min-height:50px}
     }, true);
   }
   function buildCupSwatches(){
-    buildSwatches($('#cupSwatches'), state.cups.fill, (c, live) => { state.cups.fill = c; renderCups(); if (!live) buildCupSwatches(); }, false);
+    buildSwatches($('#cupSwatches'), state.cups.paint ? state.cups.fill : null, (c, live) => { state.cups.paint = !!c; if (c) state.cups.fill = c; renderCups(); if (!live) buildCupSwatches(); }, true);
     buildSwatches($('#cupTextSwatches'), state.cups.textColor, (c, live) => { state.cups.textColor = c; renderCups(); if (!live) buildCupSwatches(); }, false);
   }
   function secTextObj(){
@@ -846,7 +847,6 @@ textarea{resize:vertical;min-height:50px}
   $('#secBg').addEventListener('change', e => { const S = state.sections[state.selSec]; if (!S) return; S.bg = e.target.checked; $('#secTolWrap').hidden = !S.bg; render(); });
   $('#secTol').addEventListener('input', e => { const S = state.sections[state.selSec]; if (!S) return; S.tol = +e.target.value; $('#secTolOut').textContent = S.tol; render(); });
   $('#lineW').addEventListener('input', e => { state.lineW = +e.target.value; $('#lineWOut').textContent = state.lineW.toFixed(2) + ' in'; render(); });
-  $('#cupPaint').addEventListener('change', e => { state.cups.paint = e.target.checked; $('#cupColorWrap').hidden = !state.cups.paint; renderCups(); });
   $('#cupTextL').addEventListener('input', e => { state.cups.textL = e.target.value; renderCups(); });
   $('#cupTextR').addEventListener('input', e => { state.cups.textR = e.target.value; renderCups(); });
   $('#cupFont').addEventListener('change', e => { state.cups.font = e.target.value; renderCups(); });
