@@ -18,7 +18,10 @@ leave your device.
 - **Zoom, rotate, and reposition** photos inside each section
 - **Text in sections and over the cup circles**, with five fonts (Titan One, Bungee,
   Rubik Mono One, Permanent Marker, Bricolage Grotesque)
-- **Adjustable line thickness** for the black section lines
+- **Adjustable line thickness and color** for the section lines (lines stay black in outline view)
+- **Reshape sections** by dragging their corner points; neighboring sections move with them
+- **Remove sections** you don't want (like the small inner circle in Style 6), and restore them anytime
+- **Cup circle color** picker, or dashed guide circles if you pick no color
 - **"Turn all photos into outlines"** button that converts everything into
   black-and-white paintable outlines
 
